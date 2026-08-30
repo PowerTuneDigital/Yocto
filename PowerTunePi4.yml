@@ -55,9 +55,11 @@ local_conf_header:
   image-packages: |
     IMAGE_FEATURES:remove = " splash"
     IMAGE_INSTALL:append = " rpio rpi-gpio strace nano openssh-ssh git openssl openssl-bin ddcutil"
+    IMAGE_INSTALL:append = " openssl-legacy"
     IMAGE_INSTALL:append = " rsync iw sudo htop ntp wpa-supplicant"
     IMAGE_INSTALL:append = " locale-base-de-de glibc-binary-localedata-de-de glibc-charmap-utf-8"
     IMAGE_INSTALL:append = " can-utils powertune"
+    IMAGE_INSTALL:append = " rpi-eeprom"
     IMAGE_INSTALL:append = " binutils cpp cpp-symlinks g++ g++-symlinks gcc gcc-symlinks gcc-dev"
     IMAGE_INSTALL:append = " qtmultimedia qtmultimedia-plugins qtmultimedia-qmlplugins qtserialbus-dev qtcharts-dev qtlocation-dev qtsensors-dev qtmultimedia-dev"
     IMAGE_INSTALL:append = " qtquickcontrols2-dev qtvirtualkeyboard-dev qtsvg-dev qtxmlpatterns-dev icu-dev"

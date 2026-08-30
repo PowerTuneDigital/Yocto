@@ -42,6 +42,86 @@ bblayers_conf_header:
 local_conf_header:
   reduce_diskspace: |
     INHERIT += "rm_work_and_downloads"
+  gcc15-host-compat: |
+    # This build host's gcc (15.x) defaults to -std=gnu23 and made
+    # implicit-function-declaration, implicit-int, incompatible-pointer-types
+    # and int-conversion hard errors by default (previously just warnings,
+    # independent of -std -- these are a GCC default-severity change, not
+    # just a C23 language-rule change). Target (cross-compiled) recipes use
+    # Yocto's own pinned gcc and are unaffected, but *-native/*-nativesdk
+    # recipes build with this host gcc directly, and a lot of pre-2024 C
+    # code this kirkstone-era layer set still builds breaks under these
+    # rules -- e.g. unzip-native 6.0's K&R-style "T f();" prototypes (meant
+    # "unspecified args", now means "takes no args" under C23), m4-native's
+    # bundled gnulib picking a C23 [[nodiscard]] attribute form its 2021-era
+    # code doesn't know how to place correctly, or cdrtools-native's own
+    # configure probing with a bare "main(){return(0);}" (implicit int
+    # return, now a hard error). Force native builds back to gnu17 so the
+    # C23 language-rule part of this doesn't have to be patched
+    # recipe-by-recipe, and keep the -Wno-error flags for the
+    # default-severity part, which -std alone doesn't fix.
+    #
+    # gmp-native's configure has its own hand-rolled multi-ABI compiler
+    # probe loop that builds its own cflags per ABI test and ignores our
+    # CFLAGS entirely -- but it does start from cc="$CC", so the flag
+    # also has to be appended to CC itself to reach it.
+    CFLAGS:append:class-native = " -std=gnu17 -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+    CFLAGS:append:class-nativesdk = " -std=gnu17 -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+    CC:append:class-native = " -std=gnu17 -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+    CC:append:class-nativesdk = " -std=gnu17 -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+    CXX:append:class-native = " -std=gnu++17"
+    CXX:append:class-nativesdk = " -std=gnu++17"
+    # Old C++ code from this kirkstone-era layer set (rust-llvm-native's
+    # bundled LLVM ~13, Qt 5.15.7's qtdeclarative qv4compiler.cpp, likely
+    # more) uses uint32_t/uint64_t/uintptr_t without including <cstdint>
+    # directly -- it relied on getting it transitively through another
+    # standard header. This host's newer libstdc++ has pruned a lot of
+    # those transitive includes, so it's missing now. Force it in for all
+    # native C++ builds rather than patching each recipe as it turns up.
+    #
+    # CXXFLAGS defaults (OE-core's bitbake.conf) to "${CFLAGS}", so the
+    # CFLAGS:append above leaks "-std=gnu17" -- a C-only dialect flag --
+    # into every native/nativesdk C++ compile too. GCC just warns and
+    # ignores it there ("valid for C/ObjC but not for C++"), which is
+    # harmless almost everywhere, but cmake-native's own hand-rolled
+    # bootstrap script (Utilities/cmbootstrap or bootstrap-configure logic
+    # in cmake-3.22.3) treats ANY stderr output during its C++11 feature
+    # probes (make_unique/unique_ptr/filesystem) as a failure -- even
+    # though the probe actually compiles and links fine -- so it reports
+    # false negatives and cmake-native's do_configure hard-errors with
+    # "The C++ compiler does not support C++11". Appending our own
+    # "-std=gnu++17" after it is not enough: GCC still emits the warning
+    # for the earlier invalid "-std=gnu17" token even though the later
+    # flag wins for the actual dialect used. The leaked token has to be
+    # removed outright so the warning is never emitted in the first place.
+    CXXFLAGS:remove:class-native = "-std=gnu17"
+    CXXFLAGS:remove:class-nativesdk = "-std=gnu17"
+    CXXFLAGS:append:class-native = " -std=gnu++17 -include cstdint"
+    CXXFLAGS:append:class-nativesdk = " -std=gnu++17 -include cstdint"
+    # swig-native's own build intentionally compiles in strict ANSI mode
+    # (-ansi, i.e. -std=c++98, appended after our -std=gnu++17 so it
+    # wins). Forcing <cstdint> in under that trips glibc's own
+    # C++11-required guard (bits/c++0x_warning.h). swig never needed this
+    # fix in the first place, so just exclude it here.
+    CXXFLAGS:remove:pn-swig-native = "-include cstdint"
+    # Some *target* recipes (e.g. bash) build a host-side code-generator
+    # tool (bash's mkbuiltins) as part of their own build, using plain
+    # $(BUILD_CC)/$(BUILD_CFLAGS) with none of the above class-native
+    # overrides -- BUILD_CC/BUILD_CFLAGS is OE-core's own mechanism for
+    # exactly this "host tool built inside a target recipe" case, so the
+    # same gcc15 fix needs to be applied there too.
+    BUILD_CFLAGS:append = " -std=gnu17 -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+    BUILD_CC:append = " -std=gnu17 -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+    # elfutils-native opts into its own -Werror policy (WARNCFLAGS) and
+    # builds disassemblers for every architecture regardless of build
+    # target. It's tripped over multiple distinct new-to-gcc15 warnings
+    # in architecture backends irrelevant to our ARM target (RISC-V
+    # const-discard, i386 unterminated-string-initialization -- the
+    # latter warning flag didn't even exist before gcc 15). Rather than
+    # chase each new one individually, just turn its own -Werror back
+    # into non-fatal warnings for this recipe; -Wno-error appended after
+    # their -Werror overrides it.
+    CFLAGS:append:pn-elfutils-native = " -Wno-error"
   standard: |
     CONF_VERSION = "2"
     PACKAGE_CLASSES = "package_rpm"
@@ -55,9 +135,11 @@ local_conf_header:
   image-packages: |
     IMAGE_FEATURES:remove = " splash"
     IMAGE_INSTALL:append = " rpio rpi-gpio strace nano openssh-ssh git openssl openssl-bin ddcutil"
+    IMAGE_INSTALL:append = " openssl-legacy"
     IMAGE_INSTALL:append = " rsync iw sudo htop ntp wpa-supplicant"
     IMAGE_INSTALL:append = " locale-base-de-de glibc-binary-localedata-de-de glibc-charmap-utf-8"
     IMAGE_INSTALL:append = " can-utils powertune"
+    IMAGE_INSTALL:append = " rpi-eeprom"
     IMAGE_INSTALL:append = " binutils cpp cpp-symlinks g++ g++-symlinks gcc gcc-symlinks gcc-dev"
     IMAGE_INSTALL:append = " qtmultimedia qtmultimedia-plugins qtmultimedia-qmlplugins qtserialbus-dev qtcharts-dev qtlocation-dev qtsensors-dev qtmultimedia-dev"
     IMAGE_INSTALL:append = " qtquickcontrols2-dev qtvirtualkeyboard-dev qtsvg-dev qtxmlpatterns-dev icu-dev"

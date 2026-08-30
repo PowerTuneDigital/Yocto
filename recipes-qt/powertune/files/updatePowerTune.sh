@@ -1,8 +1,37 @@
 #!/bin/sh
-#Check if this is a Yocto image 
+#Check if this is a Yocto image
 if [ -d /home/root ]; then
 # Get the latest source
 		echo "Yocto detected "
+ 		 FILE="/etc/profile.d/yocto_extra_packages.sh"
+		LINE_TO_CHECK='export LD_LIBRARY_PATH="/usr/local/lib/openssl/openssl/openssl/lib:$LD_LIBRARY_PATH"'
+		NEW_LINE='export LD_LIBRARY_PATH="/usr/local/lib/openssl/openssl/lib:$LD_LIBRARY_PATH"'
+
+# Check if the file exists
+	        if [ -f "$FILE" ]; then
+   	       # Check if the line exists in the file
+   	 	if grep -qF "$LINE_TO_CHECK" "$FILE"; then
+        	# Replace the line
+        	sed -i "s|$LINE_TO_CHECK|$NEW_LINE|" "$FILE"
+        	echo "Line replaced in $FILE"
+    		else
+     		echo "Line not found in $FILE"
+  	        fi
+		else
+    		echo "Error: File $FILE not found."
+		fi
+		echo "Fix rng "
+                rm /etc/init.d/rng-tools
+		if [ -d /home/Recoverysrc ]; then
+	        cd /home/pi/Recoverysrc
+		git pull
+                ./updateRecovery.sh
+                else
+                mkdir /home/pi/Recoverysrc
+                git clone https://github.com/PowerTuneDigital/PowerTuneDigitalRecovery.git /home/pi/Recoverysrc
+                cd /home/pi/Recoverysrc
+                ./updateRecovery.sh
+                fi
 		if [ -d /home/pi/src ]; then
 		echo "Updating to latest source "
 		cd /home/pi/src
@@ -34,6 +63,15 @@ if [ -d /home/root ]; then
 		else
 		mkdir /home/pi/build
 		fi
+# Check if the Tracks Folder Exists
+		if [ -d /home/pi/KTracks ]; then
+		echo "KTracks folder exists"
+		else
+		echo "Create KTracks Folder"
+ 		mkdir /home/pi/KTracks
+		# Copy KTracks folder and its contents from src to home
+		cp -r /home/pi/src/KTracks/* /home/pi/KTracks/
+		fi
 # Compile PowerTune
 		cd /home/pi/build
 		echo "Compiling PowerTune ... go grab a Coffee"
@@ -48,7 +86,7 @@ if [ -d /home/root ]; then
 		sudo rm -r /home/pi/build
 		fi
 
-# Raspbian image 
+# Raspbian image
 else
 if nc -zw5 www.github.com 443; then
 # Get the latest source
@@ -64,7 +102,7 @@ if nc -zw5 www.github.com 443; then
 		else
 		echo "Create source directory and clone PowerTune Repo"
 		mkdir /home/pi/src
-		git clone https://github.com/PowerTuneDigital/PowerTuneDigitalOfficial.git /home/pi/src  
+		git clone https://github.com/PowerTuneDigital/PowerTuneDigitalOfficial.git /home/pi/src
 		cd src
 		./fixcan.sh
 		./updatedaemons.sh
