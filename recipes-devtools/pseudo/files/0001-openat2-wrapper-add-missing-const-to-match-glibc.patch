@@ -1,0 +1,25 @@
+From: PowerTune build fix <info@powertunedigital.com>
+Subject: openat2 wrapper: add missing const to match current glibc prototype
+
+pseudo's generated openat2() wrapper is declared without `const` on the
+open_how* parameter. Current glibc declares the real openat2() with
+`const struct open_how *`, and pseudo's own generated definition now
+gets compiled in the same translation unit as glibc's declaration
+(pseudo_wrappers.c includes <fcntl.h>), causing a hard conflicting-types
+error:
+
+  pseudo_wrapfuncs.c:11537:1: error: conflicting types for 'openat2';
+  have 'int(int, const char *, struct open_how *, size_t)'
+  note: previous declaration ... 'int(int, const char *,
+  const struct open_how *, long unsigned int)'
+
+Add the missing const so the generated wrapper's signature matches.
+
+Upstream-Status: Pending
+Signed-off-by: PowerTune build fix <info@powertunedigital.com>
+
+--- a/ports/linux/openat2/wrapfuncs.in
++++ b/ports/linux/openat2/wrapfuncs.in
+@@ -1 +1 @@
+-int openat2(int dirfd, const char *path, struct open_how *how, size_t size);
++int openat2(int dirfd, const char *path, const struct open_how *how, size_t size);

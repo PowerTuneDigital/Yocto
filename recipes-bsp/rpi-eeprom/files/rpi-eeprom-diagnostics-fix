@@ -1,0 +1,43 @@
+#!/bin/sh
+# Applies the Pi4 EEPROM boot-diagnostics-screen fix (DISABLE_HDMI /
+# DISABLE_SPLASH) once, on first boot, then reboots so the Raspberry Pi 4
+# bootROM picks up the pending EEPROM update.
+#
+# Safe to run on every boot: it exits immediately once the stamp file
+# exists, and it exits immediately on any board that isn't a BCM2711
+# (Pi4), so the same image can be shared with Pi5 units without risking a
+# wrong-chip flash.
+
+set -e
+
+STAMP_DIR=/var/lib/rpi-eeprom
+STAMP="${STAMP_DIR}/diagnostics-fix-applied"
+LOG=/var/log/rpi-eeprom-diagnostics-fix.log
+FIRMWARE_DIR=@BASE_LIBDIR@/firmware/raspberrypi/bootloader-2711/default
+
+[ -e "${STAMP}" ] && exit 0
+
+# Only ever touch BCM2711 (Pi4) hardware -- this same image/service may
+# also run on a Pi5, which must not be flashed with a Pi4 EEPROM image.
+if ! grep -qa "bcm2711" /proc/device-tree/compatible 2>/dev/null; then
+    exit 0
+fi
+
+IMG=$(ls -1 "${FIRMWARE_DIR}"/pieeprom-*.bin 2>/dev/null | sort -r | head -n1)
+if [ -z "${IMG}" ]; then
+    mkdir -p "${STAMP_DIR}"
+    echo "$(date -u): no bootloader-2711 default image found in ${FIRMWARE_DIR}, skipping" >> "${LOG}"
+    exit 0
+fi
+
+mkdir -p "${STAMP_DIR}"
+
+echo "$(date -u): staging EEPROM update from ${IMG}" >> "${LOG}"
+if rpi-eeprom-update -d -f "${IMG}" >> "${LOG}" 2>&1; then
+    date -u > "${STAMP}"
+    echo "$(date -u): update staged, rebooting in 60s so the bootROM applies it" >> "${LOG}"
+    ( sleep 60 && reboot ) &
+else
+    echo "$(date -u): rpi-eeprom-update failed, will retry next boot" >> "${LOG}"
+    exit 1
+fi

@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply Pi4 EEPROM boot-diagnostics-screen fix (first boot only)
+After=local-fs.target
+ConditionPathExists=!/var/lib/rpi-eeprom/diagnostics-fix-applied
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/rpi-eeprom-diagnostics-fix
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

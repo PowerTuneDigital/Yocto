@@ -1,0 +1,18 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          rpi-eeprom-diagnostics-fix
+# Required-Start:    $local_fs
+# Required-Stop:
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: Apply Pi4 EEPROM boot-diagnostics-screen fix (first boot only)
+### END INIT INFO
+
+case "$1" in
+  start)
+    /usr/sbin/rpi-eeprom-diagnostics-fix
+    ;;
+  *)
+    ;;
+esac
+exit 0

@@ -1,0 +1,29 @@
+From: PowerTune build fix <info@powertunedigital.com>
+Subject: unxcfg.h: drop redundant K&R-style gmtime()/localtime() redeclaration
+
+<time.h> (glibc and friends) already declares gmtime()/localtime() with
+full prototypes. This unspecified-argument-list fallback redeclaration
+was harmless under pre-C23 semantics, where empty parens meant
+"unspecified parameters". Under C23 semantics (the default with newer
+GCC), empty parens mean "takes no parameters", which now directly
+conflicts with the real prototype and is a hard compile error:
+
+  unxcfg.h:120:15: error: conflicting types for 'gmtime'; have 'struct tm *(void)'
+  unxcfg.h:120:26: error: conflicting types for 'localtime'; have 'struct tm *(void)'
+
+The declaration is redundant on any system with a real <time.h>, so
+just drop it.
+
+Upstream-Status: Inappropriate [unzip 6.0 is unmaintained upstream]
+Signed-off-by: PowerTune build fix <info@powertunedigital.com>
+
+--- a/unix/unxcfg.h
++++ b/unix/unxcfg.h
+@@ -117,7 +117,6 @@
+ #  endif
+ #else
+ #  include <time.h>
+-   struct tm *gmtime(), *localtime();
+ #endif
+ 
+ #if (defined(BSD4_4) || (defined(SYSV) && defined(MODERN)))

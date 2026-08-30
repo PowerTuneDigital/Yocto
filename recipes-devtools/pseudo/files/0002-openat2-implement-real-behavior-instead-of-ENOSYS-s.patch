@@ -1,0 +1,81 @@
+From: PowerTune build fix <info@powertunedigital.com>
+Subject: openat2 guts: implement real behavior instead of an ENOSYS stub
+
+Upstream's current openat2() wrapper unconditionally fails with ENOSYS,
+with a comment saying it hopes callers retry with a different syscall.
+That's not what happens on this host: this glibc calls openat2()
+directly for plain file opens and does not fall back to openat() when
+it gets ENOSYS, so under pseudo *every* file creation fails during
+packaging:
+
+  tar: ./etc/rc0.d/S90halt: Cannot open: Function not implemented
+
+Fix it for real: translate the struct open_how's flags/mode into a
+call to the same real_openat() + pseudo database bookkeeping path the
+working openat() wrapper (ports/linux/guts/openat.c) already uses, so
+opens actually succeed instead of failing outright. The resolve flags
+in struct open_how (symlink/mount escape protection) are intentionally
+not honored -- irrelevant for a local build sandbox, and out of scope
+for what pseudo needs to do here.
+
+Upstream-Status: Pending
+Signed-off-by: PowerTune build fix <info@powertunedigital.com>
+
+--- a/ports/linux/openat2/guts/openat2.c
++++ b/ports/linux/openat2/guts/openat2.c
+@@ -8,15 +8,47 @@
+  *	int rc = -1;
+  */
+ 
+-	(void) dirfd;
+-	(void) path;
+-	(void) how;
++	struct stat64 buf;
++	int flags;
++	mode_t mode;
++	int existed = 1;
++	int save_errno;
++
+ 	(void) size;
+-	/* for now, let's try just failing out hard, and hope things retry with a
+-	 * different syscall.
+-	 */
+-	errno = ENOSYS;
+-	rc = -1;
++
++	flags = (int) how->flags;
++	mode = (mode_t) how->mode;
++
++	/* mask out mode bits appropriately */
++	mode = mode & ~pseudo_umask;
++
++	if (flags & O_CREAT) {
++		save_errno = errno;
++		rc = real___fxstatat64(_STAT_VER, dirfd, path, &buf,
++			(flags & O_NOFOLLOW) ? AT_SYMLINK_NOFOLLOW : 0);
++		existed = (rc != -1);
++		errno = save_errno;
++	}
++
++	rc = real_openat(dirfd, path, flags, PSEUDO_FS_MODE(mode, 0));
++
++	if (rc != -1) {
++		int stat_rc;
++		save_errno = errno;
++		stat_rc = real___fxstatat64(_STAT_VER, dirfd, path, &buf,
++			(flags & O_NOFOLLOW) ? AT_SYMLINK_NOFOLLOW : 0);
++		if (stat_rc != -1) {
++			buf.st_mode = PSEUDO_DB_MODE(buf.st_mode, mode);
++			if (!existed) {
++				real_fchmod(rc, PSEUDO_FS_MODE(mode, 0));
++				pseudo_client_op(OP_CREAT, 0, -1, dirfd, path, &buf);
++			}
++			pseudo_client_op(OP_OPEN, PSEUDO_ACCESS(flags), rc, dirfd, path, &buf);
++		} else {
++			pseudo_client_op(OP_OPEN, PSEUDO_ACCESS(flags), rc, dirfd, path, 0);
++		}
++		errno = save_errno;
++	}
+ 
+ /*	return rc;
+  * }
