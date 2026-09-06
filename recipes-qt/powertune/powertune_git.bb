@@ -26,8 +26,27 @@ S = "${WORKDIR}/git"
 
 USERADD_PACKAGES = "${PN}"
 
+# gpio/i2c/spi: recipes-core/udev/udev-rules-rpi.bb fetches 99-com.rules
+# from the real upstream raspberrypi-sys-mods repo (which references
+# GROUP="gpio"/"i2c"/"spi" for device node permissions) but only cherry-
+# picks that one rules file out of it, not the group-creation Raspbian
+# itself also gets from that same project. Nothing else on this image ever
+# created those groups, so udevd can't resolve the GROUP= it's told to use
+# and prints "specified group 'gpio' unknown" etc. straight to the boot
+# console for each one - confirmed on-device 2026-08-31 (192.168.0.222),
+# visible because the console sits on the same tty as the splash.
+# useradd.bbclass runs GROUPADD_PARAM before USERADD_PARAM within the same
+# recipe, so putting both here (rather than splitting the groupadd into
+# udev-rules-rpi.bb) avoids depending on cross-recipe postinst ordering.
+GROUPADD_PARAM:${PN} = "-r gpio; -r i2c; -r spi"
+
 # powertune
-USERADD_PARAM:${PN} = "-d /home/pi -s /bin/bash -p '$6$u30tO9Iobu19Ak6p$40C6YgGQOhUNCgDx6bQMskQcrIlSzRugqENWCaqLXAOrjV2TKTFtRYWQPXPWOBjsRE/7xMMeagqK5fceZstO81' pi"
+# -G gpio,i2c,spi: see GROUPADD_PARAM above - PowertuneQMLGui runs as root
+# via powertune.service so this isn't needed for the app itself, but pi is
+# the account used for manual on-device access (SSH, console), and the
+# original on-device fix added it to these plus the already-existing
+# dialout/video/input groups.
+USERADD_PARAM:${PN} = "-d /home/pi -s /bin/bash -G gpio,i2c,spi,dialout,video,input -p '$6$u30tO9Iobu19Ak6p$40C6YgGQOhUNCgDx6bQMskQcrIlSzRugqENWCaqLXAOrjV2TKTFtRYWQPXPWOBjsRE/7xMMeagqK5fceZstO81' pi"
 
 do_install:append() {
     install -d ${D}/home/pi
@@ -35,6 +54,7 @@ do_install:append() {
     install -m 0755 -p ${WORKDIR}/powertune-update.sh ${D}/home/pi/powertune-update.sh
     install -m 0755 -p ${WORKDIR}/startdaemon.sh ${D}/home/pi/startdaemon.sh
     install -m 0755 -p ${WORKDIR}/updatePowerTune.sh ${D}/home/pi/updatePowerTune.sh
+
     for d in GPSTracks Gauges KTracks Logo Sounds exampleDash fonts graphics; do \
        cp -rd ${S}/$d/ ${D}/opt/PowerTune/
     done
@@ -68,10 +88,14 @@ do_install:append() {
     cp -r ${S}/fonts/. ${D}/usr/local/share/fonts/
 
     # udev rule for the PLMS Consult FTDI cable (registerPLMSCONSULT.sh).
-    # The rule as checked in to Scripts/99-usbftdi.rules uses curly quotes
-    # and the udev keyword predates ATTRS{} matching (SYSFS{} was removed years ago),
-    # so as written it never matches anything; this is the same rule
-    # rewritten with modern udev syntax and plain quotes.
+    # Scripts/99-usbftdi.rules in the source repo has since been fixed
+    # (2026-09-06) to match this - it used to have curly/smart quotes udev's
+    # parser can't read at all (likely pasted from a rich-text editor,
+    # confirmed on-device 2026-08-31: "invalid key/value pair" printed
+    # straight to the boot console every boot) and the deprecated SYSFS{}
+    # match key instead of ATTRS{}. Generated inline here rather than
+    # installed from ${S}/Scripts/ directly so this recipe doesn't depend
+    # on the source file staying correct if it's ever hand-edited again.
     install -d ${D}${sysconfdir}/udev/rules.d
     cat <<EOF>${D}${sysconfdir}/udev/rules.d/99-usbftdi.rules
 # For PLMS Developments Consult Cable FTDI FT232 & FT245 USB devices with Vendor ID = 0x0403, Product ID = 0xc7d9
